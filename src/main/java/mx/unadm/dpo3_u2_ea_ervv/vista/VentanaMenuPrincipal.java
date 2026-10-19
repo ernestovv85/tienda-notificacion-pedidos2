@@ -12,21 +12,25 @@ public class VentanaMenuPrincipal extends JFrame {
 
     public static final String NOMBRE_MODULO = "Notificación de pedidos procesados";
     public static final String NOMBRE_ALUMNO = "Ernesto Velázquez Velázquez";
+    public static final String VERSION = "versión 2";
     private static final String RUTA_IMAGEN = "/imagenes/notificacion.png";
     private static final int ANCHO_MAX_IMAGEN = 400;
-    private static final int ALTO_MAX_IMAGEN = 280;
-    private FormularioNotificacion formulario;
+    private static final int ALTO_MAX_IMAGEN = 260;
+
+    private FormularioNotificacion formulario;     // Módulo versión 1 (etapa 1)
+    private FormularioNotificacionV2 formularioV2; // Módulo versión 2 (etapa 2)
 
     public VentanaMenuPrincipal() {
-        super(NOMBRE_MODULO + " - " + NOMBRE_ALUMNO);
+        // Barra de título: módulo asignado + "versión 2" + nombre completo
+        super(NOMBRE_MODULO + " - " + VERSION + " - " + NOMBRE_ALUMNO);
         configurarVentana();
         setJMenuBar(crearMenu());
         add(crearPantallaInicio());
     }
 
     private void configurarVentana() {
-        setSize(720, 540);
-        setMinimumSize(new Dimension(600, 450));
+        setSize(760, 580);
+        setMinimumSize(new Dimension(640, 500));
         setLocationRelativeTo(null);
         // La X de la ventana pasa por la misma confirmación que la opción Salir
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
@@ -44,10 +48,16 @@ public class VentanaMenuPrincipal extends JFrame {
         JMenu menuModulo = new JMenu("Módulo");
         menuModulo.setMnemonic(KeyEvent.VK_M);
 
-        JMenuItem itemNotificacion = new JMenuItem(NOMBRE_MODULO);
-        itemNotificacion.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_N, InputEvent.CTRL_DOWN_MASK));
-        itemNotificacion.addActionListener(e -> abrirModulo());
-        menuModulo.add(itemNotificacion);
+        JMenuItem itemVersion1 = new JMenuItem(NOMBRE_MODULO + " (versión 1)");
+        itemVersion1.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_1, InputEvent.CTRL_DOWN_MASK));
+        itemVersion1.addActionListener(e -> abrirModulo());
+
+        JMenuItem itemVersion2 = new JMenuItem(NOMBRE_MODULO + " (" + VERSION + ")");
+        itemVersion2.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_2, InputEvent.CTRL_DOWN_MASK));
+        itemVersion2.addActionListener(e -> abrirModuloV2());
+
+        menuModulo.add(itemVersion1);
+        menuModulo.add(itemVersion2);
 
         JMenu menuSistema = new JMenu("Sistema");
         menuSistema.setMnemonic(KeyEvent.VK_S);
@@ -67,8 +77,9 @@ public class VentanaMenuPrincipal extends JFrame {
         panel.setBorder(BorderFactory.createEmptyBorder(25, 25, 25, 25));
         panel.setBackground(Color.WHITE);
 
-        JLabel lblTitulo = new JLabel("Tienda en línea · Sistema multi-flujo", SwingConstants.CENTER);
-        lblTitulo.setFont(new Font("SansSerif", Font.BOLD, 24));
+        JLabel lblTitulo = new JLabel("Tienda en línea · Sistema multi-flujo · Versión 2",
+                SwingConstants.CENTER);
+        lblTitulo.setFont(new Font("SansSerif", Font.BOLD, 22));
         lblTitulo.setForeground(new Color(0x1F, 0x4E, 0x79));
 
         JLabel lblImagen = new JLabel("", SwingConstants.CENTER);
@@ -80,15 +91,35 @@ public class VentanaMenuPrincipal extends JFrame {
             lblImagen.setForeground(Color.GRAY);
         }
 
+        panel.add(lblTitulo, BorderLayout.NORTH);
+        panel.add(lblImagen, BorderLayout.CENTER);
+        panel.add(crearPanelAcceso(), BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private JPanel crearPanelAcceso() {
         JLabel lblInstruccion = new JLabel(
-                "<html><div style='text-align:center'>Módulo: <b>" + NOMBRE_MODULO + "</b><br>"
-                        + "Selecciona <i>Módulo → " + NOMBRE_MODULO + "</i> para comenzar.</div></html>",
+                "<html><div style='text-align:center'>Módulo: <b>" + NOMBRE_MODULO + "</b> · "
+                        + VERSION + "<br>Da clic en el botón para procesar registros con hilos "
+                        + "independientes.</div></html>",
                 SwingConstants.CENTER);
         lblInstruccion.setFont(new Font("SansSerif", Font.PLAIN, 14));
 
-        panel.add(lblTitulo, BorderLayout.NORTH);
-        panel.add(lblImagen, BorderLayout.CENTER);
-        panel.add(lblInstruccion, BorderLayout.SOUTH);
+        // Botón de acceso al módulo versión 2 desde el menú principal
+        JButton btnModuloV2 = new JButton("Abrir módulo (" + VERSION + ")");
+        btnModuloV2.setFont(new Font("SansSerif", Font.BOLD, 15));
+        btnModuloV2.setFocusPainted(false);
+        btnModuloV2.setToolTipText("Abre el módulo " + NOMBRE_MODULO + " - " + VERSION);
+        btnModuloV2.addActionListener(e -> abrirModuloV2());
+
+        JPanel panelBoton = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        panelBoton.setOpaque(false);
+        panelBoton.add(btnModuloV2);
+
+        JPanel panel = new JPanel(new BorderLayout(0, 10));
+        panel.setOpaque(false);
+        panel.add(lblInstruccion, BorderLayout.CENTER);
+        panel.add(panelBoton, BorderLayout.SOUTH);
         return panel;
     }
 
@@ -107,12 +138,22 @@ public class VentanaMenuPrincipal extends JFrame {
         return new ImageIcon(original.getImage().getScaledInstance(ancho, alto, Image.SCALE_SMOOTH));
     }
 
+    // Módulo de la etapa 1 (se conserva sin cambios)
     private void abrirModulo() {
         if (formulario == null || !formulario.isDisplayable()) {
             formulario = new FormularioNotificacion(this);
         }
         formulario.setVisible(true);
         formulario.toFront();
+    }
+
+    // Módulo de la etapa 2
+    private void abrirModuloV2() {
+        if (formularioV2 == null || !formularioV2.isDisplayable()) {
+            formularioV2 = new FormularioNotificacionV2(this);
+        }
+        formularioV2.setVisible(true);
+        formularioV2.toFront();
     }
 
     private void salir() {
