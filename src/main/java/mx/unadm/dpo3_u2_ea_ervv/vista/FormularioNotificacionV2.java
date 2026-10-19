@@ -7,9 +7,12 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.io.IOException;
+import java.nio.file.Path;
 
 import mx.unadm.dpo3_u2_ea_ervv.hilo.HiloNotificacionRegistro;
-import java.util.concurrent.atomic.AtomicInteger;
+import mx.unadm.dpo3_u2_ea_ervv.util.EscritorResultado;
 
 public class FormularioNotificacionV2 extends JDialog {
 
@@ -221,6 +224,17 @@ public class FormularioNotificacionV2 extends JDialog {
         }
 
         int total = registros.size();
+
+        // Se abre resultado.txt antes de lanzar los hilos; si falla, no se inicia nada
+        EscritorResultado escritor;
+        try {
+            escritor = new EscritorResultado(total);
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, "No se pudo crear resultado.txt:\n" + e.getMessage(),
+                    "Error de archivo", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
         txtBitacora.setText("");
         for (int i = 0; i < total; i++) {
             modeloTabla.setValueAt("Pendiente", i, COL_ESTADO);
@@ -228,11 +242,11 @@ public class FormularioNotificacionV2 extends JDialog {
         actualizarProgreso(0, total);
         establecerEnEjecucion(true);
 
-        // Un hilo independiente por cada registro capturado
+        // Un hilo independiente por cada registro; todos comparten el mismo escritor
         AtomicInteger completados = new AtomicInteger();
         hilos.clear();
         for (int i = 0; i < total; i++) {
-            hilos.add(new HiloNotificacionRegistro(i, registros.get(i), this, completados, total));
+            hilos.add(new HiloNotificacionRegistro(i, registros.get(i), this, escritor, completados, total));
         }
 
         agregarMensaje("[" + Thread.currentThread().getName() + "] Iniciando " + total
@@ -243,37 +257,69 @@ public class FormularioNotificacionV2 extends JDialog {
 
         // El coordinador espera a los hilos sin bloquear la interfaz
         List<HiloNotificacionRegistro> lanzados = List.copyOf(hilos);
-        coordinador = new Thread(() -> esperarFinalizacion(lanzados), "Hilo-Coordinador");
+        coordinador = new Thread(() -> esperarFinalizacion(lanzados, escritor), "Hilo-Coordinador");
         coordinador.start();
     }
 
-    private void esperarFinalizacion(List<HiloNotificacionRegistro> lanzados) {
+    private void esperarFinalizacion(List<HiloNotificacionRegistro> lanzados, EscritorResultado escritor) {
         try {
             for (HiloNotificacionRegistro hilo : lanzados) {
                 hilo.join(); // Espera a que ese hilo termine
             }
-            String mensaje = "[Hilo-Coordinador] Todos los hilos finalizaron ("
-                    + lanzados.size() + " registros).";
-            System.out.println(mensaje);
-            agregarMensaje(mensaje);
-            // Paso 6: aquí se confirmará que resultado.txt se guardó correctamente
+            registrarCoordinador("Todos los hilos finalizaron (" + lanzados.size() + " registros).");
+
+            // Solo se cierra cuando ningún hilo puede seguir escribiendo
+            Path ruta = escritor.cerrar();
+            int guardados = escritor.contarRegistrosEnArchivo();
+            registrarCoordinador("resultado.txt cerrado: " + guardados + " de " + lanzados.size()
+                    + " registros guardados.");
+            confirmarResultados(ruta, guardados, lanzados.size());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        } catch (IOException e) {
+            registrarCoordinador("ERROR al cerrar resultado.txt: " + e.getMessage());
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
+                    "Ocurrió un error al guardar resultado.txt:\n" + e.getMessage(),
+                    "Error de archivo", JOptionPane.ERROR_MESSAGE));
         } finally {
             establecerEnEjecucion(false);
         }
     }
 
+    private void registrarCoordinador(String mensaje) {
+        String linea = "[" + Thread.currentThread().getName() + "] " + mensaje;
+        System.out.println(linea);
+        agregarMensaje(linea);
+    }
+
+    /** Muestra la confirmación en el EDT, que es el único hilo que debe abrir diálogos. */
+    private void confirmarResultados(Path ruta, int guardados, int esperados) {
+        SwingUtilities.invokeLater(() -> {
+            if (!isDisplayable()) {
+                return; // La ventana se cerró durante el proceso
+            }
+            if (guardados == esperados) {
+                JOptionPane.showMessageDialog(this,
+                        "Los resultados de los " + esperados + " registros se almacenaron "
+                                + "correctamente en:\n" + ruta,
+                        "Procesamiento finalizado", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this,
+                        "Se esperaban " + esperados + " registros, pero el archivo contiene "
+                                + guardados + ".\nRevisa: " + ruta,
+                        "Resultados incompletos", JOptionPane.WARNING_MESSAGE);
+            }
+        });
+    }
+
     @Override
     public void dispose() {
-        // Si se cierra la ventana a mitad del proceso, se detienen los hilos
+        // Si se cierra la ventana a mitad del proceso, se interrumpen los hilos de trabajo.
+        // El coordinador NO se interrumpe: espera a que terminen y cierra el archivo correctamente.
         for (HiloNotificacionRegistro hilo : hilos) {
             if (hilo.isAlive()) {
                 hilo.interrupt();
             }
-        }
-        if (coordinador != null) {
-            coordinador.interrupt();
         }
         super.dispose();
     }
