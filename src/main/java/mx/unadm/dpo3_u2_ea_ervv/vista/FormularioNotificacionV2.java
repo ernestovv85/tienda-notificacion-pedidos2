@@ -8,6 +8,9 @@ import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
+import mx.unadm.dpo3_u2_ea_ervv.hilo.HiloNotificacionRegistro;
+import java.util.concurrent.atomic.AtomicInteger;
+
 public class FormularioNotificacionV2 extends JDialog {
 
     private static final int MIN_REGISTROS = 3;
@@ -42,6 +45,10 @@ public class FormularioNotificacionV2 extends JDialog {
     // Datos: la lista y la tabla se mantienen en el mismo orden (índice = fila)
     private final List<RegistroNotificacion> registros = new ArrayList<>();
     private int consecutivoFolio = 0;
+
+    // Hilos de la ejecución actual
+    private final List<HiloNotificacionRegistro> hilos = new ArrayList<>();
+    private Thread coordinador;
 
     public FormularioNotificacionV2(JFrame propietario) {
         super(propietario, "Módulo: " + VentanaMenuPrincipal.NOMBRE_MODULO
@@ -209,10 +216,66 @@ public class FormularioNotificacionV2 extends JDialog {
             mostrarAviso("Captura al menos " + MIN_REGISTROS + " registros para iniciar.", txtCliente);
             return;
         }
+        if (coordinador != null && coordinador.isAlive()) {
+            return; // Ya hay un procesamiento en curso
+        }
+
+        int total = registros.size();
         txtBitacora.setText("");
-        agregarMensaje("Registros listos para procesar: " + registros.size());
-        registros.forEach(r -> agregarMensaje("  " + r));
-        // Paso 5: aquí se creará un hilo independiente por cada registro
+        for (int i = 0; i < total; i++) {
+            modeloTabla.setValueAt("Pendiente", i, COL_ESTADO);
+        }
+        actualizarProgreso(0, total);
+        establecerEnEjecucion(true);
+
+        // Un hilo independiente por cada registro capturado
+        AtomicInteger completados = new AtomicInteger();
+        hilos.clear();
+        for (int i = 0; i < total; i++) {
+            hilos.add(new HiloNotificacionRegistro(i, registros.get(i), this, completados, total));
+        }
+
+        agregarMensaje("[" + Thread.currentThread().getName() + "] Iniciando " + total
+                + " hilos independientes...");
+        for (HiloNotificacionRegistro hilo : hilos) {
+            hilo.start(); // start() crea un flujo nuevo; run() directo se ejecutaría en el EDT
+        }
+
+        // El coordinador espera a los hilos sin bloquear la interfaz
+        List<HiloNotificacionRegistro> lanzados = List.copyOf(hilos);
+        coordinador = new Thread(() -> esperarFinalizacion(lanzados), "Hilo-Coordinador");
+        coordinador.start();
+    }
+
+    private void esperarFinalizacion(List<HiloNotificacionRegistro> lanzados) {
+        try {
+            for (HiloNotificacionRegistro hilo : lanzados) {
+                hilo.join(); // Espera a que ese hilo termine
+            }
+            String mensaje = "[Hilo-Coordinador] Todos los hilos finalizaron ("
+                    + lanzados.size() + " registros).";
+            System.out.println(mensaje);
+            agregarMensaje(mensaje);
+            // Paso 6: aquí se confirmará que resultado.txt se guardó correctamente
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            establecerEnEjecucion(false);
+        }
+    }
+
+    @Override
+    public void dispose() {
+        // Si se cierra la ventana a mitad del proceso, se detienen los hilos
+        for (HiloNotificacionRegistro hilo : hilos) {
+            if (hilo.isAlive()) {
+                hilo.interrupt();
+            }
+        }
+        if (coordinador != null) {
+            coordinador.interrupt();
+        }
+        super.dispose();
     }
 
     private void actualizarAyudaContacto() {
